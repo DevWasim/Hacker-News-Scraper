@@ -1,55 +1,55 @@
-# Hacker News Scraper
+# Hacker News Scraper + 3D Three.js UI
 
-## Overview
+A Hacker News scraper that now has:
 
-This Python script enables effortless scraping and display of top posts from Hacker News. By specifying the number of pages, users can retrieve valuable insights into trending topics on the platform.
+- **CLI mode** (scrape and print top stories in your terminal)
+- **Web mode** with a **Three.js galaxy interface** where stories become animated 3D nodes
 
-## How to Use
+## Setup
 
-1. **Installation:**
-   ```bash
-   pip install requests beautifulsoup4
-   ```
+```bash
+pip install requests beautifulsoup4
+```
 
-2. **Execution:**
-   ```bash
-   python hacker_news_scraper.py
-   ```
+## Run in CLI mode
 
-3. **Input:**
-   Enter the desired number of pages when prompted.
+```bash
+python hacker_news_scraper.py
+```
 
-## Features
+You will be prompted for number of pages to scrape.
 
-- **Efficient Scraping:**
-  The script utilizes the `requests` library for making HTTP requests and `BeautifulSoup` for seamless HTML parsing.
+## Run the 3D web experience
 
-- **Dynamic Display:**
-  It fetches top posts from Hacker News, presenting them in a user-friendly format sorted by votes.
+```bash
+python hacker_news_scraper.py --serve
+```
 
-## Getting Started
+Then open:
 
-Clone the repository and follow the usage instructions to harness the power of this Hacker News Scraper. Keep yourself informed about the latest and most engaging discussions on Hacker News effortlessly.
+- <http://127.0.0.1:8000>
 
-## Notes
+### Web features
 
-- The script filters posts with less than 100 votes, focusing on high-quality content.
-- Customize and enhance the script to meet your specific requirements and preferences.
+- Animated starfield and orbiting story nodes via Three.js
+- Adjustable pages and minimum score filters
+- Story cards synced with 3D visualization
+- Lightweight local JSON API at `/api/stories`
 
-## Contributions
+## API
 
-Feel free to contribute to this project by suggesting improvements, reporting issues, or enhancing its functionality. Your input is valuable in making this Hacker News Scraper even more effective.
+`GET /api/stories?pages=2&min_points=50`
 
+Response shape:
 
-**Disclaimer:**
-This project is not affiliated with Hacker News or its parent company, Y Combinator. It is an independent tool developed for educational and informational purposes.
-
-
-
----
-
-## 🌱 Empower dedication with your generosity
-#### Every single coffee boosts towards greater motivation, turning compassion into action. Show your kind support with just a little click! 😃
-
-<a href="https://www.buymeacoffee.com/developerwasim" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
-
+```json
+{
+  "stories": [
+    {
+      "title": "Example",
+      "link": "https://example.com",
+      "points": 123
+    }
+  ]
+}
+```
