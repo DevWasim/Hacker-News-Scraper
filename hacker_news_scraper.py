@@ -1,4 +1,10 @@
 """Hacker News scraper + local API server."""
+"""Hacker News scraper + tiny API server.
+
+Usage:
+  python hacker_news_scraper.py              # interactive CLI mode
+  python hacker_news_scraper.py --serve      # start web API for the 3D UI
+"""
 
 from __future__ import annotations
 
@@ -26,6 +32,7 @@ class Story:
 
 
 def fetch_page(page: int, timeout: int = 15) -> tuple[list, list]:
+    """Fetch one Hacker News page and return title + score elements."""
     response = requests.get(BASE_URL.format(page=page), timeout=timeout)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
@@ -35,6 +42,7 @@ def fetch_page(page: int, timeout: int = 15) -> tuple[list, list]:
 
 
 def parse_stories(links: list, votes: list, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
+    """Convert page elements to Story models filtered by points."""
     stories: List[Story] = []
     for link, vote in zip(links, votes):
         link_element = link.select_one("a")
@@ -75,6 +83,8 @@ def fetch_front_page_stories(limit: int = 100, min_points: int = DEFAULT_MIN_POI
 
 
 def scrape_hn_pages(num_pages: int, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
+def scrape_hn_pages(num_pages: int, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
+    """Scrape and return top stories from N pages, sorted by points."""
     if num_pages <= 0:
         return []
 
@@ -89,6 +99,7 @@ def scrape_hn_pages(num_pages: int, min_points: int = DEFAULT_MIN_POINTS) -> Lis
 
     # If scraping layout changes or score matching drops to zero, fallback for reliability.
     return fetch_front_page_stories(limit=max(30, num_pages * 30), min_points=min_points)
+    return sorted(all_stories, key=lambda item: item.points, reverse=True)
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -101,6 +112,8 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) 
 
 
 class HNRequestHandler(BaseHTTPRequestHandler):
+    """Serves static UI and a JSON endpoint."""
+
     static_root = Path(__file__).resolve().parent / "web_ui"
 
     def do_GET(self):  # noqa: N802
@@ -131,6 +144,15 @@ class HNRequestHandler(BaseHTTPRequestHandler):
                 return
 
             _json_response(self, 200, payload)
+            pages = int(query.get("pages", ["2"])[0])
+            min_points = int(query.get("min_points", [str(DEFAULT_MIN_POINTS)])[0])
+            try:
+                stories = [asdict(story) for story in scrape_hn_pages(pages, min_points=min_points)]
+            except Exception as exc:  # pragma: no cover - defensive for server mode
+                _json_response(self, 500, {"error": str(exc)})
+                return
+
+            _json_response(self, 200, {"stories": stories})
             return
 
         if parsed.path in {"/", "/index.html"}:
@@ -153,6 +175,7 @@ class HNRequestHandler(BaseHTTPRequestHandler):
 def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     server = ThreadingHTTPServer((host, port), HNRequestHandler)
     print(f"Serving app at http://{host}:{port}")
+    print(f"Serving 3D HN UI at http://{host}:{port}")
     server.serve_forever()
 
 
@@ -166,6 +189,7 @@ def run_cli() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hacker News scraper")
     parser.add_argument("--serve", action="store_true", help="Run the local API + UI")
+    parser.add_argument("--serve", action="store_true", help="Run the local API + 3D web UI")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)
     args = parser.parse_args()
