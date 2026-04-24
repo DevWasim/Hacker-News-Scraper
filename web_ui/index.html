@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hacker News Galaxy Scraper</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --glass: rgba(13, 17, 23, 0.7);
+      --border: rgba(255, 255, 255, 0.16);
+      --accent: #ff7b00;
+      --text: #e6edf3;
+      --muted: #8b949e;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top, #141f2f 0%, #07090f 45%, #030407 100%);
+      overflow: hidden;
+    }
+
+    #scene {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(320px, 520px) 1fr;
+      height: 100%;
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    .panel {
+      background: var(--glass);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem;
+      box-shadow: 0 16px 60px rgba(0, 0, 0, 0.35);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    h1 {
+      margin: 0 0 0.3rem;
+      font-size: 1.3rem;
+      letter-spacing: 0.01em;
+    }
+
+    .subtitle {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    input {
+      width: 72px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      padding: 0.5rem;
+    }
+
+    button {
+      border: 0;
+      background: linear-gradient(135deg, var(--accent), #ffb347);
+      color: #1c1208;
+      font-weight: 700;
+      border-radius: 10px;
+      padding: 0.52rem 0.8rem;
+      cursor: pointer;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 0.8rem;
+    }
+
+    #list {
+      overflow: auto;
+      display: grid;
+      gap: 0.55rem;
+      padding-right: 0.4rem;
+    }
+
+    .story {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.6rem;
+      background: rgba(255, 255, 255, 0.03);
+      transition: transform 180ms ease, border-color 180ms ease;
+    }
+
+    .story:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .score {
+      color: #ffd9a8;
+      font-size: 0.8rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .story a {
+      color: #f7faff;
+      text-decoration: none;
+      display: block;
+      margin-top: 0.25rem;
+      line-height: 1.35;
+    }
+
+    .story a:hover { color: #ffcb9a; }
+
+    .legend {
+      margin-top: auto;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    @media (max-width: 950px) {
+      .app { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <main class="app">
+    <section class="panel">
+      <h1>🚀 Hacker News Galaxy</h1>
+      <p class="subtitle">Scrape the latest HN pages and watch each story become a glowing 3D node in orbit.</p>
+
+      <div class="controls">
+        <label for="pages">Pages</label>
+        <input id="pages" type="number" min="1" max="10" value="2" />
+        <label for="minPoints">Min points</label>
+        <input id="minPoints" type="number" min="0" max="1000" value="50" />
+        <button id="refreshBtn">Refresh Galaxy</button>
+      </div>
+
+      <div id="meta" class="meta">Loading stories…</div>
+      <div id="list"></div>
+      <p class="legend">Tip: drag to rotate, scroll to zoom.</p>
+    </section>
+
+    <section class="panel">
+      <h1>3D Story Field</h1>
+      <p class="subtitle">Bigger and brighter nodes have more points. Hovered nodes pulse in your starfield.</p>
+      <div class="legend">Built with Three.js + Python scraping backend.</div>
+    </section>
+  </main>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.163.0/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.163.0/examples/jsm/controls/OrbitControls.js';
+
+    const canvas = document.getElementById('scene');
+    const meta = document.getElementById('meta');
+    const list = document.getElementById('list');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x04070d, 0.018);
+
+    const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 8, 26);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.minDistance = 9;
+    controls.maxDistance = 60;
+
+    scene.add(new THREE.AmbientLight(0x5f6980, 0.7));
+    const keyLight = new THREE.DirectionalLight(0xffa66b, 1.1);
+    keyLight.position.set(11, 12, 5);
+    scene.add(keyLight);
+
+    const starsGeometry = new THREE.BufferGeometry();
+    const starCount = 1400;
+    const starVertices = [];
+    for (let i = 0; i < starCount; i++) {
+      starVertices.push((Math.random() - 0.5) * 260, (Math.random() - 0.5) * 220, (Math.random() - 0.5) * 260);
+    }
+    starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+    const stars = new THREE.Points(starsGeometry, new THREE.PointsMaterial({ color: 0xffffff, size: 0.2 }));
+    scene.add(stars);
+
+    let nodes = [];
+    const group = new THREE.Group();
+    scene.add(group);
+
+    function clearNodes() {
+      for (const node of nodes) {
+        group.remove(node.mesh);
+        node.mesh.geometry.dispose();
+        node.mesh.material.dispose();
+      }
+      nodes = [];
+    }
+
+    function renderList(stories) {
+      list.innerHTML = '';
+      stories.slice(0, 40).forEach((story, idx) => {
+        const card = document.createElement('article');
+        card.className = 'story';
+        card.innerHTML = `
+          <div class="score">#${idx + 1} • ${story.points} points</div>
+          <a href="${story.link}" target="_blank" rel="noopener noreferrer">${story.title}</a>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    function buildGalaxy(stories) {
+      clearNodes();
+      stories.slice(0, 80).forEach((story, i) => {
+        const scoreScale = Math.max(0.7, Math.min(2.6, story.points / 180));
+        const geom = new THREE.IcosahedronGeometry(0.32 * scoreScale, 1);
+        const hue = 0.06 + Math.min(0.18, story.points / 900);
+        const mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setHSL(hue, 0.85, 0.56),
+          emissive: new THREE.Color().setHSL(hue, 0.9, 0.18),
+          roughness: 0.35,
+          metalness: 0.48
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        const r = 6 + i * 0.25;
+        const theta = i * 0.62;
+        const y = (Math.sin(i * 0.33) * 4) + (Math.random() - 0.5) * 0.6;
+        mesh.position.set(Math.cos(theta) * r, y, Math.sin(theta) * r);
+        mesh.userData = { angle: theta, radius: r, speed: 0.0008 + Math.random() * 0.0011, wobble: Math.random() * 1.7 };
+        group.add(mesh);
+        nodes.push({ mesh, story });
+      });
+    }
+
+    async function loadStories() {
+      const pages = Math.max(1, Math.min(10, Number(document.getElementById('pages').value) || 2));
+      const minPoints = Math.max(0, Number(document.getElementById('minPoints').value) || 50);
+      meta.textContent = 'Warping through Hacker News...';
+      try {
+        const res = await fetch(`/api/stories?pages=${pages}&min_points=${minPoints}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch stories');
+
+        const stories = data.stories;
+        meta.textContent = `Showing ${stories.length} stories from ${pages} page(s), filtered at ${minPoints}+ points.`;
+        renderList(stories);
+        buildGalaxy(stories);
+      } catch (err) {
+        meta.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    refreshBtn.addEventListener('click', loadStories);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function animate() {
+      const t = clock.getElapsedTime();
+      stars.rotation.y = t * 0.01;
+      group.rotation.y += 0.0007;
+
+      for (const node of nodes) {
+        const d = node.mesh.userData;
+        d.angle += d.speed;
+        node.mesh.position.x = Math.cos(d.angle) * d.radius;
+        node.mesh.position.z = Math.sin(d.angle) * d.radius;
+        node.mesh.position.y += Math.sin(t + d.wobble) * 0.003;
+        node.mesh.rotation.x += 0.004;
+        node.mesh.rotation.y += 0.006;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    loadStories();
+    animate();
+  </script>
+</body>
+</html>
