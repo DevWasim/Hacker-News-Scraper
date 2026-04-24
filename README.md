@@ -1,55 +1,46 @@
-# Hacker News Scraper
+# Hacker News Scraper + Animated 3D UI
 
-## Overview
+A reliable Hacker News scraper with:
 
-This Python script enables effortless scraping and display of top posts from Hacker News. By specifying the number of pages, users can retrieve valuable insights into trending topics on the platform.
+- **CLI mode** (scrape and print top stories)
+- **Web mode** with a **local 3D animated galaxy UI**
+- **No external front-end CDN dependency** (works in restricted networks)
 
-## How to Use
+## Setup
 
-1. **Installation:**
-   ```bash
-   pip install requests beautifulsoup4
-   ```
+```bash
+pip install requests beautifulsoup4
+```
 
-2. **Execution:**
-   ```bash
-   python hacker_news_scraper.py
-   ```
+## Run in CLI mode
 
-3. **Input:**
-   Enter the desired number of pages when prompted.
+```bash
+python hacker_news_scraper.py
+```
 
-## Features
+## Run the web app
 
-- **Efficient Scraping:**
-  The script utilizes the `requests` library for making HTTP requests and `BeautifulSoup` for seamless HTML parsing.
+```bash
+python hacker_news_scraper.py --serve
+```
 
-- **Dynamic Display:**
-  It fetches top posts from Hacker News, presenting them in a user-friendly format sorted by votes.
+Open:
 
-## Getting Started
+- <http://127.0.0.1:8000>
 
-Clone the repository and follow the usage instructions to harness the power of this Hacker News Scraper. Keep yourself informed about the latest and most engaging discussions on Hacker News effortlessly.
+## Why this version is more reliable
 
-## Notes
+- UI animation is fully local (no module imports from blocked CDNs)
+- `/api/stories` supports `source=front_page` (default, most reliable) and `source=scrape`
+- Better error messages in the UI
 
-- The script filters posts with less than 100 votes, focusing on high-quality content.
-- Customize and enhance the script to meet your specific requirements and preferences.
+## API
 
-## Contributions
+`GET /api/stories?pages=2&min_points=50&source=front_page`
 
-Feel free to contribute to this project by suggesting improvements, reporting issues, or enhancing its functionality. Your input is valuable in making this Hacker News Scraper even more effective.
+Optional:
 
-
-**Disclaimer:**
-This project is not affiliated with Hacker News or its parent company, Y Combinator. It is an independent tool developed for educational and informational purposes.
+- `source=front_page` to use Algolia front-page source directly
 
 
-
----
-
-## 🌱 Empower dedication with your generosity
-#### Every single coffee boosts towards greater motivation, turning compassion into action. Show your kind support with just a little click! 😃
-
-<a href="https://www.buymeacoffee.com/developerwasim" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
-
+Tip: Use `source=front_page` for the most stable results.

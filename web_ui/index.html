@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hacker News Galaxy Scraper</title>
+  <style>
+    :root { color-scheme: dark; --glass: rgba(13,17,23,.72); --border: rgba(255,255,255,.16); --text:#e6edf3; --muted:#95a2b3; --accent:#ff981a; }
+    *{box-sizing:border-box} html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif;color:var(--text);background:#030712;overflow:hidden}
+    #scene{position:fixed;inset:0;z-index:0;background:radial-gradient(circle at 30% 20%,#15243a 0%,#070d16 45%,#030712 100%)}
+    .app{position:relative;z-index:2;display:grid;grid-template-columns:minmax(320px,520px) 1fr;height:100%;gap:1rem;padding:1rem}
+    .panel{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:1rem;display:flex;flex-direction:column;min-height:0;backdrop-filter:blur(8px)}
+    h1{margin:.1rem 0 .35rem;font-size:1.9rem}.subtitle{margin:0 0 1rem;color:var(--muted)}
+    .controls{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
+    input,select{width:72px;border-radius:10px;border:1px solid var(--border);background:#ffffff0c;color:var(--text);padding:.52rem}
+    select{width:170px}
+    button{border:0;background:linear-gradient(135deg,var(--accent),#ffc16b);color:#231507;font-weight:800;border-radius:10px;padding:.56rem .85rem;cursor:pointer}
+    .meta{font-size:.93rem;color:var(--muted);margin-bottom:.7rem;min-height:1.2rem} #list{overflow:auto;display:grid;gap:.55rem;padding-right:.3rem}
+    .story{border:1px solid var(--border);border-radius:12px;padding:.6rem;background:#ffffff08}.score{color:#ffd8ad;font-size:.77rem;text-transform:uppercase;letter-spacing:.07em}
+    .story a{display:block;color:#f3f8ff;text-decoration:none;margin-top:.25rem}.story a:hover{color:#ffcd96}.legend{margin-top:auto;color:var(--muted);font-size:.82rem}
+    @media (max-width: 950px){.app{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<main class="app">
+  <section class="panel">
+    <h1>🚀 Hacker News Galaxy</h1>
+    <p class="subtitle">Now fully self-contained: no CDN imports, no blank screen, just working animated 3D-like visuals + live stories.</p>
+    <div class="controls">
+      <label for="pages">Pages</label><input id="pages" type="number" min="1" max="10" value="2" />
+      <label for="minPoints">Min points</label><input id="minPoints" type="number" min="0" max="2000" value="50" />
+      <label for="source">Source</label><select id="source"><option value="front_page">Front Page (Reliable)</option><option value="scrape">Scrape Pages</option></select>
+      <button id="refreshBtn">Refresh Galaxy</button>
+    </div>
+    <div id="meta" class="meta">Loading stories…</div>
+    <div id="list"></div>
+    <p class="legend">Tip: this renderer uses local canvas animation so it works even when external CDNs are blocked.</p>
+  </section>
+  <section class="panel">
+    <h1>3D Story Field</h1>
+    <p class="subtitle">Points control node size, glow, depth and orbital speed.</p>
+    <div class="legend">No external JS dependencies required.</div>
+  </section>
+</main>
+<script>
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+  const meta = document.getElementById('meta');
+  const list = document.getElementById('list');
+  const refreshBtn = document.getElementById('refreshBtn');
+
+  let width = 0, height = 0, cx = 0, cy = 0;
+  let stars = [];
+  let nodes = [];
+
+  function resize(){
+    width = canvas.width = window.innerWidth * Math.min(window.devicePixelRatio || 1, 2);
+    height = canvas.height = window.innerHeight * Math.min(window.devicePixelRatio || 1, 2);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    cx = width * 0.58;
+    cy = height * 0.5;
+    stars = Array.from({length: 600}, () => ({
+      x: Math.random()*width, y: Math.random()*height, z: Math.random()*1.2 + .3, s: Math.random()*1.4 + .3
+    }));
+  }
+
+  function renderList(stories){
+    list.innerHTML = '';
+    stories.slice(0, 50).forEach((story, idx) => {
+      const card = document.createElement('article');
+      card.className = 'story';
+      card.innerHTML = `<div class="score">#${idx+1} • ${story.points} points</div><a target="_blank" rel="noopener noreferrer" href="${story.link}">${story.title}</a>`;
+      list.appendChild(card);
+    });
+  }
+
+  function buildNodes(stories){
+    nodes = stories.slice(0, 90).map((story, i) => {
+      const score = Math.max(1, Number(story.points || 1));
+      const ring = 70 + i * 4.8;
+      return {
+        title: story.title,
+        points: score,
+        angle: i * .33,
+        speed: 0.0006 + Math.min(0.0022, score / 300000),
+        ring,
+        depth: .4 + Math.min(1.4, score / 650),
+        size: 2 + Math.min(18, score / 40),
+        hue: 24 + Math.min(40, score / 25)
+      };
+    });
+  }
+
+  function draw(t){
+    ctx.clearRect(0,0,width,height);
+
+    // stars
+    for(const s of stars){
+      s.x -= 0.08 * s.z;
+      if(s.x < -3){ s.x = width + 3; s.y = Math.random()*height; }
+      const alpha = .25 + .5 * s.z;
+      ctx.fillStyle = `rgba(200,220,255,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.s * s.z, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // soft nebula
+    const g = ctx.createRadialGradient(cx, cy, 30, cx, cy, Math.min(width,height)*.42);
+    g.addColorStop(0, 'rgba(255,160,80,.08)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,width,height);
+
+    // nodes sorted by depth
+    const view = [];
+    for(const n of nodes){
+      n.angle += n.speed * (16 + n.depth);
+      const x3 = Math.cos(n.angle) * n.ring;
+      const z3 = Math.sin(n.angle * 1.17) * n.ring * .7;
+      const y3 = Math.sin(n.angle * 1.7) * 70;
+      const perspective = 320 / (320 + z3);
+      view.push({
+        x: cx + x3 * perspective,
+        y: cy + y3 * perspective,
+        r: n.size * perspective,
+        glow: Math.min(1, .2 + n.points / 700),
+        z: z3,
+        hue: n.hue
+      });
+    }
+    view.sort((a,b)=>a.z-b.z);
+
+    for(const p of view){
+      ctx.shadowBlur = 16 + p.r * 2;
+      ctx.shadowColor = `hsla(${p.hue},95%,62%,${.6*p.glow})`;
+      ctx.fillStyle = `hsla(${p.hue},90%,60%,.92)`;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    requestAnimationFrame(draw);
+  }
+
+  async function loadStories(){
+    const pages = Math.max(1, Math.min(10, Number(document.getElementById('pages').value) || 2));
+    const minPoints = Math.max(0, Number(document.getElementById('minPoints').value) || 50);
+    const source = document.getElementById('source').value || 'front_page';
+    meta.textContent = 'Fetching fresh stories...';
+    try {
+      const res = await fetch(`/api/stories?pages=${pages}&min_points=${minPoints}&source=${encodeURIComponent(source)}`);
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error || 'API request failed');
+      const stories = data.stories || [];
+      if(!stories.length) throw new Error('No stories returned. Try lowering min points.');
+      meta.textContent = `Loaded ${stories.length} stories from ${pages} page(s) via ${source}.`;
+      renderList(stories);
+      buildNodes(stories);
+    } catch(err){
+      meta.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  refreshBtn.addEventListener('click', loadStories);
+  window.addEventListener('resize', resize);
+  resize();
+  loadStories();
+  requestAnimationFrame(draw);
+</script>
+</body>
+</html>
