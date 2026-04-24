@@ -108,9 +108,18 @@ class HNRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/stories":
             query = parse_qs(parsed.query)
-            pages = int(query.get("pages", ["2"])[0])
-            min_points = int(query.get("min_points", [str(DEFAULT_MIN_POINTS)])[0])
-            source = query.get("source", ["scrape"])[0]
+            try:
+                pages = max(1, min(10, int(query.get("pages", ["2"])[0])))
+                min_points = max(0, int(query.get("min_points", [str(DEFAULT_MIN_POINTS)])[0]))
+            except ValueError:
+                _json_response(self, 400, {"error": "Invalid query params. pages/min_points must be integers."})
+                return
+
+            source = query.get("source", ["front_page"])[0]
+            if source not in {"front_page", "scrape"}:
+                _json_response(self, 400, {"error": "Invalid source. Use front_page or scrape."})
+                return
+
             try:
                 if source == "front_page":
                     stories = fetch_front_page_stories(limit=max(30, pages * 30), min_points=min_points)

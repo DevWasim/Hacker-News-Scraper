@@ -31,12 +31,12 @@ Open:
 ## Why this version is more reliable
 
 - UI animation is fully local (no module imports from blocked CDNs)
-- `/api/stories` first tries direct scraping and falls back to HN Algolia front-page API if needed
+- `/api/stories` supports `source=front_page` (default, most reliable) and `source=scrape`
 - Better error messages in the UI
 
 ## API
 
-`GET /api/stories?pages=2&min_points=50`
+`GET /api/stories?pages=2&min_points=50&source=front_page`
 
 Optional:
 
