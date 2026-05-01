@@ -5,11 +5,11 @@ Usage:
   python hacker_news_scraper.py              # interactive CLI mode
   python hacker_news_scraper.py --serve      # start web API for the 3D UI
 """
-
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 from dataclasses import dataclass, asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,186 +19,177 @@ from urllib.parse import parse_qs, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+# --- Global Config ---
 BASE_URL = "https://news.ycombinator.com/news?p={page}"
 ALGOLIA_URL = "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage={limit}"
 DEFAULT_MIN_POINTS = 50
 
+# Setup logging with some personality
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s: %(message)s")
 
-@dataclass
+@dataclass(frozen=True)
 class Story:
+    """Immutable data container for an HN Story."""
     title: str
     link: str
     points: int
 
-
-def fetch_page(page: int, timeout: int = 15) -> tuple[list, list]:
-    """Fetch one Hacker News page and return title + score elements."""
-    response = requests.get(BASE_URL.format(page=page), timeout=timeout)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    links = soup.select(".titleline")
-    votes = soup.select(".score")
-    return links, votes
-
-
-def parse_stories(links: list, votes: list, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
-    """Convert page elements to Story models filtered by points."""
-    stories: List[Story] = []
-    for link, vote in zip(links, votes):
-        link_element = link.select_one("a")
-        if not link_element:
-            continue
-
-        raw_score = vote.get_text(strip=True).replace(" points", "").replace(" point", "")
-        points = int(raw_score)
-        if points < min_points:
-            continue
-
-        stories.append(
-            Story(
-                title=link_element.get_text(strip=True),
-                link=link_element.get("href", ""),
-                points=points,
-            )
-        )
-    return stories
-
-
-def fetch_front_page_stories(limit: int = 100, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
-    """Fallback data source using Algolia HN API."""
-    response = requests.get(ALGOLIA_URL.format(limit=limit), timeout=15)
-    response.raise_for_status()
-    hits = response.json().get("hits", [])
-
-    stories: List[Story] = []
-    for hit in hits:
-        title = hit.get("title") or hit.get("story_title")
-        link = hit.get("url") or hit.get("story_url") or f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}"
-        points = int(hit.get("points") or 0)
-        if not title or points < min_points:
-            continue
-        stories.append(Story(title=title, link=link, points=points))
-
-    return sorted(stories, key=lambda item: item.points, reverse=True)
-
-
-def scrape_hn_pages(num_pages: int, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
-def scrape_hn_pages(num_pages: int, min_points: int = DEFAULT_MIN_POINTS) -> List[Story]:
-    """Scrape and return top stories from N pages, sorted by points."""
-    if num_pages <= 0:
-        return []
-
-    all_stories: List[Story] = []
-    for page in range(1, num_pages + 1):
-        links, votes = fetch_page(page)
-        all_stories.extend(parse_stories(links, votes, min_points=min_points))
-
-    stories = sorted(all_stories, key=lambda item: item.points, reverse=True)
-    if stories:
+class HNScraper:
+    """The engine room. Responsible for pulling data from the orange site."""
+    
+    @staticmethod
+    def fetch_via_scraping(page: int) -> List[Story]:
+        """
+        Dives into the HTML soup to extract stories.
+        Handles the mismatch between title rows and metadata rows gracefully.
+        """
+        stories = []
+        try:
+            response = requests.get(BASE_URL.format(page=page), timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            # HN structure: '.athing' contains the title, the next 'tr' contains the score
+            rows = soup.select(".athing")
+            for row in rows:
+                subtext = row.find_next_sibling("tr")
+                if not subtext: 
+                    continue
+                
+                score_element = subtext.select_one(".score")
+                # Skip job postings or ads that don't have upvotes
+                if not score_element: 
+                    continue
+                
+                points = int(score_element.get_text(strip=True).split()[0])
+                link_element = row.select_one(".titleline > a")
+                
+                if link_element:
+                    stories.append(Story(
+                        title=link_element.get_text(strip=True),
+                        link=link_element.get("href", ""),
+                        points=points
+                    ))
+        except Exception as e:
+            logging.error(f"Scraping heist failed on page {page}: {e}")
         return stories
 
-    # If scraping layout changes or score matching drops to zero, fallback for reliability.
-    return fetch_front_page_stories(limit=max(30, num_pages * 30), min_points=min_points)
-    return sorted(all_stories, key=lambda item: item.points, reverse=True)
+    @staticmethod
+    def fetch_via_api(limit: int = 100) -> List[Story]:
+        """
+        Fallback mechanism using the Algolia API. 
+        Because sometimes HTML tags change, but APIs (mostly) don't.
+        """
+        try:
+            response = requests.get(ALGOLIA_URL.format(limit=limit), timeout=10)
+            response.raise_for_status()
+            hits = response.json().get("hits", [])
+            return [
+                Story(
+                    title=h.get("title") or "Untitled Story",
+                    link=h.get("url") or f"https://news.ycombinator.com/item?id={h.get('objectID')}",
+                    points=h.get("points", 0)
+                ) for h in hits
+            ]
+        except Exception as e:
+            logging.error(f"API fallback went sideways: {e}")
+            return []
 
-
-def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
-    body = json.dumps(payload).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
-
+def get_curated_stories(num_pages: int, min_points: int, use_api: bool = False) -> List[Story]:
+    """
+    The brain of the operation: Fetches, filters out the noise, and sorts by hype (points).
+    """
+    raw_data = []
+    
+    if use_api:
+        logging.info(f"Fetching {num_pages * 30} stories via Algolia API...")
+        raw_data = HNScraper.fetch_via_api(limit=num_pages * 30)
+    else:
+        logging.info(f"Scraping {num_pages} page(s) from Hacker News...")
+        for p in range(1, num_pages + 1):
+            raw_data.extend(HNScraper.fetch_via_scraping(p))
+    
+    # Filter by user-defined quality threshold (min_points)
+    refined = [s for s in raw_data if s.points >= min_points]
+    return sorted(refined, key=lambda x: x.points, reverse=True)
 
 class HNRequestHandler(BaseHTTPRequestHandler):
-    """Serves static UI and a JSON endpoint."""
-
+    """
+    A lightweight handler to serve the UI and API endpoints.
+    Built with zero external dependencies (Vanilla Python).
+    """
+    
     static_root = Path(__file__).resolve().parent / "web_ui"
 
-    def do_GET(self):  # noqa: N802
-        parsed = urlparse(self.path)
-
-        if parsed.path == "/api/stories":
-            query = parse_qs(parsed.query)
-            try:
-                pages = max(1, min(10, int(query.get("pages", ["2"])[0])))
-                min_points = max(0, int(query.get("min_points", [str(DEFAULT_MIN_POINTS)])[0]))
-            except ValueError:
-                _json_response(self, 400, {"error": "Invalid query params. pages/min_points must be integers."})
-                return
-
-            source = query.get("source", ["front_page"])[0]
-            if source not in {"front_page", "scrape"}:
-                _json_response(self, 400, {"error": "Invalid source. Use front_page or scrape."})
-                return
-
-            try:
-                if source == "front_page":
-                    stories = fetch_front_page_stories(limit=max(30, pages * 30), min_points=min_points)
-                else:
-                    stories = scrape_hn_pages(pages, min_points=min_points)
-                payload = {"stories": [asdict(story) for story in stories], "source": source}
-            except Exception as exc:
-                _json_response(self, 500, {"error": str(exc)})
-                return
-
-            _json_response(self, 200, payload)
-            pages = int(query.get("pages", ["2"])[0])
-            min_points = int(query.get("min_points", [str(DEFAULT_MIN_POINTS)])[0])
-            try:
-                stories = [asdict(story) for story in scrape_hn_pages(pages, min_points=min_points)]
-            except Exception as exc:  # pragma: no cover - defensive for server mode
-                _json_response(self, 500, {"error": str(exc)})
-                return
-
-            _json_response(self, 200, {"stories": stories})
-            return
-
-        if parsed.path in {"/", "/index.html"}:
-            index_file = self.static_root / "index.html"
-            body = index_file.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        self.send_response(404)
+    def _respond_json(self, data: dict, status: int = 200):
+        """Helper to ship JSON payloads with CORS enabled."""
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")  # Modern UI needs CORS
         self.end_headers()
+        self.wfile.write(body)
 
-    def log_message(self, format, *args):  # noqa: A003
-        return
+    def do_GET(self):
+        url = urlparse(self.path)
+        
+        # Endpoint: /api/stories?pages=2&min_points=100&source=scrape
+        if url.path == "/api/stories":
+            query = parse_qs(url.query)
+            try:
+                pages = int(query.get("pages", [2])[0])
+                min_pts = int(query.get("min_points", [DEFAULT_MIN_POINTS])[0])
+                source = query.get("source", ["scrape"])[0]
+                
+                results = get_curated_stories(pages, min_pts, use_api=(source == "front_page"))
+                self._respond_json({
+                    "status": "success",
+                    "source": source,
+                    "stories": [asdict(s) for s in results],
+                    "count": len(results)
+                })
+            except Exception as e:
+                self._respond_json({"error": str(e)}, 400)
+            return
 
+        # Serve static frontend (index.html)
+        if url.path in {"/", "/index.html"}:
+            index_path = self.static_root / "index.html"
+            if index_path.exists():
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(index_path.read_bytes())
+            else:
+                self.send_error(404, "Frontend UI not found in /web_ui")
+            return
 
-def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
-    server = ThreadingHTTPServer((host, port), HNRequestHandler)
-    print(f"Serving app at http://{host}:{port}")
-    print(f"Serving 3D HN UI at http://{host}:{port}")
-    server.serve_forever()
+        self.send_error(404)
 
-
-def run_cli() -> None:
-    pages = int(input("How many pages do you want to scan? ").strip() or "1")
-    stories = scrape_hn_pages(pages)
-    for index, story in enumerate(stories, start=1):
-        print(f"{index:>2}. [{story.points:>4} pts] {story.title}\n    {story.link}")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Hacker News scraper")
-    parser.add_argument("--serve", action="store_true", help="Run the local API + UI")
-    parser.add_argument("--serve", action="store_true", help="Run the local API + 3D web UI")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", default=8000, type=int)
+def main():
+    """Entry point for CLI and Server modes."""
+    parser = argparse.ArgumentParser(description="Hacker News Master Scraper")
+    parser.add_argument("--serve", action="store_true", help="Launch the local API server")
+    parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
     args = parser.parse_args()
 
     if args.serve:
-        run_server(host=args.host, port=args.port)
+        server = ThreadingHTTPServer(("0.0.0.0", args.port), HNRequestHandler)
+        logging.info(f"🚀 API ready at http://localhost:{args.port}/api/stories")
+        logging.info(f"🌐 UI ready at http://localhost:{args.port}")
+        server.serve_forever()
     else:
-        run_cli()
-
+        # CLI Mode: Quick and dirty
+        try:
+            print("\n--- HN CLI Explorer ---")
+            pages = int(input("How many pages to scan? (default 1): ") or 1)
+            stories = get_curated_stories(pages, DEFAULT_MIN_POINTS)
+            
+            for i, s in enumerate(stories, 1):
+                print(f"{i:02d}. [{s.points:4} pts] {s.title}")
+                print(f"    🔗 {s.link}\n")
+        except KeyboardInterrupt:
+            print("\nAborted by user. Happy hacking!")
 
 if __name__ == "__main__":
     main()
