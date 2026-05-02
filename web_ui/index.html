@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hacker News Galaxy Scraper</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+    :root { color-scheme:dark; --glass:rgba(13,17,23,.78); --border:rgba(255,255,255,.13); --text:#e6edf3; --muted:#8b949e; --accent:#ff8c1a; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;font-family:Inter,system-ui,sans-serif;color:var(--text);background:#030712;overflow:hidden}
+    #galaxy-canvas{position:absolute;top:0;right:0;width:100%;height:100%;z-index:0}
+    .app{position:relative;z-index:2;display:grid;grid-template-columns:minmax(300px,440px) 1fr;height:100%;gap:1rem;padding:1rem}
+    .panel{background:var(--glass);border:1px solid var(--border);border-radius:16px;padding:1.2rem;display:flex;flex-direction:column;min-height:0;backdrop-filter:blur(14px);box-shadow:0 8px 40px rgba(0,0,0,.4)}
+    .panel-right{position:relative;overflow:hidden;background:transparent;border:1px solid var(--border);border-radius:16px}
+    .panel-right-header{position:absolute;top:0;left:0;right:0;padding:1rem 1.2rem;z-index:3;background:linear-gradient(to bottom,rgba(3,7,18,.85) 60%,transparent)}
+    h1{font-size:1.5rem;font-weight:800;letter-spacing:-.01em}
+    .subtitle{color:var(--muted);font-size:.88rem;margin-top:.3rem;line-height:1.4}
+    .controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:1rem 0 .8rem}
+    label{font-size:.85rem;color:var(--muted)}
+    input,select{width:72px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--text);padding:.48rem .55rem;font-size:.9rem}
+    select{width:auto;min-width:150px}
+    button{border:0;background:linear-gradient(135deg,var(--accent),#ffc56b);color:#1c1208;font-weight:800;border-radius:10px;padding:.52rem .9rem;cursor:pointer;font-size:.88rem;transition:transform .15s,box-shadow .15s}
+    button:hover{transform:translateY(-1px);box-shadow:0 4px 18px rgba(255,140,26,.35)}
+    .meta{color:var(--muted);font-size:.85rem;margin-bottom:.6rem;min-height:1.1rem}
+    #list{overflow-y:auto;display:grid;gap:.5rem;padding-right:.3rem;flex:1;min-height:0}
+    #list::-webkit-scrollbar{width:5px}#list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:4px}
+    .story{border:1px solid var(--border);border-radius:11px;padding:.55rem .7rem;background:rgba(255,255,255,.04);transition:transform .18s,border-color .18s,background .18s;cursor:default}
+    .story:hover{transform:translateY(-2px);border-color:rgba(255,180,80,.4);background:rgba(255,140,26,.07)}
+    .score{color:#ffd8ad;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+    .story a{display:block;color:#f3f8ff;text-decoration:none;margin-top:.2rem;font-size:.92rem;line-height:1.35}.story a:hover{color:#ffcd96}
+    .legend{margin-top:auto;color:var(--muted);font-size:.8rem;padding-top:.6rem}
+    .tooltip{position:absolute;background:rgba(10,14,20,.92);border:1px solid rgba(255,180,80,.35);border-radius:8px;padding:.45rem .65rem;font-size:.82rem;color:#ffecd2;pointer-events:none;z-index:10;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,.5);opacity:0;transition:opacity .15s}
+    .tooltip.show{opacity:1}
+    @media(max-width:950px){.app{grid-template-columns:1fr}.panel-right{min-height:350px}}
+  </style>
+</head>
+<body>
+<main class="app">
+  <section class="panel">
+    <h1>🚀 Hacker News Galaxy</h1>
+    <p class="subtitle">Scrape the latest HN stories and watch them orbit as glowing 3D nodes.</p>
+    <div class="controls">
+      <label for="pages">Pages</label><input id="pages" type="number" min="1" max="10" value="2"/>
+      <label for="minPoints">Min pts</label><input id="minPoints" type="number" min="0" max="2000" value="50"/>
+      <label for="source">Source</label>
+      <select id="source"><option value="front_page">Front Page (Reliable)</option><option value="scrape">Scrape Pages</option></select>
+      <button id="refreshBtn">Refresh Galaxy</button>
+    </div>
+    <div id="meta" class="meta">Loading stories…</div>
+    <div id="list"></div>
+    <p class="legend">Tip: Hover nodes to see story titles. Click to open.</p>
+  </section>
+  <section class="panel-right">
+    <div class="panel-right-header">
+      <h1>3D Story Field</h1>
+      <p class="subtitle">Points control node size, glow, depth & orbital speed.</p>
+    </div>
+    <canvas id="galaxy-canvas"></canvas>
+    <div id="tooltip" class="tooltip"></div>
+  </section>
+</main>
+<script>
+(function(){
+  const canvas = document.getElementById('galaxy-canvas');
+  const ctx = canvas.getContext('2d');
+  const tooltip = document.getElementById('tooltip');
+  const meta = document.getElementById('meta');
+  const listEl = document.getElementById('list');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const container = canvas.parentElement;
+
+  let W=0, H=0, cx=0, cy=0, dpr=1;
+  let stars=[], nodes=[], viewNodes=[];
+  let mouse = {x:-999, y:-999};
+  let hoveredNode = null;
+  let time = 0;
+
+  function resize(){
+    const rect = container.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio||1, 2);
+    W = rect.width * dpr;
+    H = rect.height * dpr;
+    canvas.width = W;
+    canvas.height = H;
+    canvas.style.width = rect.width+'px';
+    canvas.style.height = rect.height+'px';
+    cx = W * 0.5;
+    cy = H * 0.5;
+    initStars();
+  }
+
+  function initStars(){
+    stars = [];
+    for(let i=0;i<500;i++){
+      stars.push({
+        x: Math.random()*W, y: Math.random()*H,
+        z: Math.random()*1.5+.3, s: Math.random()*1.2+.4,
+        twinkle: Math.random()*Math.PI*2
+      });
+    }
+  }
+
+  function renderList(stories){
+    listEl.innerHTML='';
+    stories.slice(0,50).forEach((s,i)=>{
+      const card=document.createElement('article');
+      card.className='story';
+      card.innerHTML=`<div class="score">#${i+1} • ${s.points} points</div><a href="${s.link}" target="_blank" rel="noopener">${s.title}</a>`;
+      listEl.appendChild(card);
+    });
+  }
+
+  function buildNodes(stories){
+    nodes = stories.slice(0,80).map((s,i)=>{
+      const pts = Math.max(1, s.points||1);
+      const ring = 55 + i*5.5 + Math.random()*8;
+      const tilt = (Math.random()-.5)*0.6;
+      return {
+        title: s.title, link: s.link, points: pts,
+        angle: i*0.42 + Math.random()*0.3,
+        speed: 0.0004 + Math.min(0.002, pts/250000),
+        ring: ring,
+        tiltY: tilt,
+        depth: .5 + Math.min(1.2, pts/500),
+        size: 2.5 + Math.min(16, pts/35),
+        hue: 22 + Math.min(38, pts/20),
+        pulse: Math.random()*Math.PI*2
+      };
+    });
+  }
+
+  function drawStars(t){
+    for(const s of stars){
+      s.x -= 0.06*s.z;
+      if(s.x<-2){s.x=W+2;s.y=Math.random()*H;}
+      const twinkle = .4 + .4*Math.sin(t*0.002+s.twinkle);
+      const alpha = (.2+.5*s.z)*twinkle;
+      ctx.fillStyle=`rgba(180,200,255,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(s.x,s.y,s.s*s.z,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function drawNebula(){
+    const g1=ctx.createRadialGradient(cx,cy,20,cx,cy,Math.min(W,H)*.45);
+    g1.addColorStop(0,'rgba(255,140,60,.1)');
+    g1.addColorStop(.5,'rgba(120,60,180,.04)');
+    g1.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g1;
+    ctx.fillRect(0,0,W,H);
+
+    const g2=ctx.createRadialGradient(cx*.7,cy*1.2,10,cx*.7,cy*1.2,Math.min(W,H)*.3);
+    g2.addColorStop(0,'rgba(60,120,255,.06)');
+    g2.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g2;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  function drawOrbitRings(){
+    ctx.strokeStyle='rgba(255,255,255,.03)';
+    ctx.lineWidth=.5;
+    for(let r=60;r<Math.min(W,H)*.45;r+=45){
+      ctx.beginPath();
+      ctx.ellipse(cx,cy,r,r*.55,0,0,Math.PI*2);
+      ctx.stroke();
+    }
+  }
+
+  function drawNodes(t){
+    viewNodes=[];
+    for(const n of nodes){
+      n.angle += n.speed*(14+n.depth);
+      const x3 = Math.cos(n.angle)*n.ring;
+      const z3 = Math.sin(n.angle)*n.ring*.6;
+      const y3 = Math.sin(n.angle*1.3+n.tiltY)*40 + Math.sin(t*0.001+n.pulse)*5;
+      const focalLength = 350;
+      const perspective = focalLength/(focalLength+z3);
+      const sx = cx + x3*perspective;
+      const sy = cy + y3*perspective;
+      const sr = n.size*perspective;
+      const glow = Math.min(1,.15+n.points/500);
+      const pulseScale = 1 + .08*Math.sin(t*0.003+n.pulse);
+      viewNodes.push({
+        x:sx, y:sy, r:sr*pulseScale, glow:glow, z:z3,
+        hue:n.hue, title:n.title, link:n.link, points:n.points
+      });
+    }
+    viewNodes.sort((a,b)=>a.z-b.z);
+
+    hoveredNode=null;
+    const mx=mouse.x*dpr, my=mouse.y*dpr;
+
+    for(const p of viewNodes){
+      // Glow
+      const glowR = p.r*3.5;
+      const gg=ctx.createRadialGradient(p.x,p.y,p.r*.3,p.x,p.y,glowR);
+      gg.addColorStop(0,`hsla(${p.hue},100%,65%,${.35*p.glow})`);
+      gg.addColorStop(.4,`hsla(${p.hue},90%,50%,${.12*p.glow})`);
+      gg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=gg;
+      ctx.fillRect(p.x-glowR,p.y-glowR,glowR*2,glowR*2);
+
+      // Core
+      const coreG=ctx.createRadialGradient(p.x-p.r*.25,p.y-p.r*.25,0,p.x,p.y,p.r);
+      coreG.addColorStop(0,`hsla(${p.hue},85%,78%,.95)`);
+      coreG.addColorStop(.6,`hsla(${p.hue},90%,58%,.9)`);
+      coreG.addColorStop(1,`hsla(${p.hue+10},95%,40%,.85)`);
+      ctx.fillStyle=coreG;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fill();
+
+      // Hover detection
+      const dx=p.x-mx, dy=p.y-my;
+      if(dx*dx+dy*dy < (p.r+6)*(p.r+6)){
+        hoveredNode=p;
+        // Hover ring
+        ctx.strokeStyle=`hsla(${p.hue},100%,75%,.7)`;
+        ctx.lineWidth=2;
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,p.r+4,0,Math.PI*2);
+        ctx.stroke();
+      }
+    }
+    ctx.shadowBlur=0;
+  }
+
+  function updateTooltip(){
+    if(hoveredNode){
+      const rect=container.getBoundingClientRect();
+      let tx=hoveredNode.x/dpr+10;
+      let ty=hoveredNode.y/dpr-30;
+      if(tx+200>rect.width) tx=hoveredNode.x/dpr-220;
+      if(ty<10) ty=hoveredNode.y/dpr+20;
+      tooltip.style.left=tx+'px';
+      tooltip.style.top=ty+'px';
+      tooltip.textContent=`${hoveredNode.title} (${hoveredNode.points} pts)`;
+      tooltip.classList.add('show');
+      canvas.style.cursor='pointer';
+    } else {
+      tooltip.classList.remove('show');
+      canvas.style.cursor='default';
+    }
+  }
+
+  function draw(){
+    time+=16;
+    ctx.clearRect(0,0,W,H);
+    // BG gradient
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#060d1a');
+    bg.addColorStop(.5,'#0a1628');
+    bg.addColorStop(1,'#040810');
+    ctx.fillStyle=bg;
+    ctx.fillRect(0,0,W,H);
+
+    drawStars(time);
+    drawNebula();
+    drawOrbitRings();
+    drawNodes(time);
+    updateTooltip();
+    requestAnimationFrame(draw);
+  }
+
+  canvas.addEventListener('mousemove',(e)=>{
+    const rect=canvas.getBoundingClientRect();
+    mouse.x=e.clientX-rect.left;
+    mouse.y=e.clientY-rect.top;
+  });
+  canvas.addEventListener('mouseleave',()=>{mouse.x=-999;mouse.y=-999;});
+  canvas.addEventListener('click',()=>{
+    if(hoveredNode&&hoveredNode.link) window.open(hoveredNode.link,'_blank');
+  });
+
+  async function loadStories(){
+    const pages=Math.max(1,Math.min(10,Number(document.getElementById('pages').value)||2));
+    const minPts=Math.max(0,Number(document.getElementById('minPoints').value)||50);
+    const source=document.getElementById('source').value||'front_page';
+    meta.textContent='Fetching stories…';
+    try{
+      const res=await fetch(`/api/stories?pages=${pages}&min_points=${minPts}&source=${encodeURIComponent(source)}`);
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error||'API failed');
+      const stories=data.stories||[];
+      if(!stories.length) throw new Error('No stories. Try lowering min points.');
+      meta.textContent=`Loaded ${stories.length} stories from ${pages} page(s) via ${source}.`;
+      renderList(stories);
+      buildNodes(stories);
+    }catch(err){
+      meta.textContent='Error: '+err.message;
+    }
+  }
+
+  refreshBtn.addEventListener('click',loadStories);
+  window.addEventListener('resize',resize);
+  resize();
+  loadStories();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
