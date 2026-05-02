@@ -66,20 +66,6 @@ Scrape top stories and print them in your terminal:
 python hacker_news_scraper.py
 ```
 
-```
---- HN CLI Explorer ---
-How many pages to scan? (default 1): 2
-
-01. [ 430 pts] Show HN: WhatCable, a tiny menu bar app for inspecting USB-C cables
-    🔗 https://whatcable.app
-
-02. [ 403 pts] The gay jailbreak technique
-    🔗 https://example.com/...
-
-03. [ 347 pts] AI uses less water than the public thinks
-    🔗 https://example.com/...
-```
-
 ### Web Mode (3D Galaxy)
 
 Launch the local server and open the 3D visualization:
